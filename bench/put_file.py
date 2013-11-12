@@ -6,11 +6,16 @@
 import os
 import random
 import logging
+import urllib2
+import re
+import eventlet
+import eventlet.pools
 
 from time import time
 from eventlet import tpool
 from cStringIO import StringIO
 from collections import defaultdict
+from contextlib import contextmanager
 
 from swift.common import utils
 from swift.common.swob import Request
@@ -19,12 +24,75 @@ from swift.obj import server as object_server
 from swift.common.utils import mkdirs, renamer, ThreadPool, \
     normalize_timestamp
 
+import swiftclient as client
+
 LOG = logging.getLogger(__name__)
 DATADIR = 'objects'
 
 # 请修改此变量
-DEVICE_PATH = '/srv/1/node/'
+DEVICE_PATH = '/srv/node/'
+PROXY_IP = '192.168.0.64'
+ACCOUNT = 'test'
+USER = 'testadmin'
+PASSWORD = 'testing'
+CONCURRENCY = 100
 
+
+AUTH_URL = "http://%s:8080/auth/v1.0" % PROXY_IP
+PROXY_URL = "http://%s:8080/v1" % PROXY_IP
+
+
+def gen_text(length=1024):
+    plain_text = "qwertyuiopasdfghjklzxcvbnm1234567890"
+    text_length = len(plain_text)
+    buf = StringIO()
+
+    while length > 0:
+        c = plain_text[random.randint(0, text_length - 1)]
+        buf.write(c)
+        length -= 1
+
+    buf.seek(0)
+
+    return buf.read()
+
+def get_auth_token(account, user, password):
+    """
+    Get Authenticate token and Storage URL
+
+    Returns:
+    (token, storage_url)
+    """
+    # initialize request
+    request = urllib2.Request(AUTH_URL)
+    request.add_header('X-Auth-User', ':'.join((account, user)))
+    request.add_header('X-Auth-Key', password)
+    try:
+        # get token and storage url
+        response = urllib2.urlopen(request)
+        auth_token = response.info().getheader('X-Auth-Token')
+        local_storage_url = response.info().getheader('X-Storage-Url')
+        storage_url = re.sub('127.0.0.1', PROXY_IP, local_storage_url)
+        return (auth_token, storage_url)
+    # authentication failed
+    except urllib2.HTTPError, e:
+        err_code = e.getcode()
+        if err_code == 401:
+            print e
+    finally:
+        try:
+            response.close()
+        except NameError:
+            pass
+
+class ConnectionPool(eventlet.pools.Pool):
+
+    def __init__(self, url, size):
+        self.url = url
+        eventlet.pools.Pool.__init__(self, size, size)
+
+    def create(self):
+        return client.http_connection(self.url)
 
 class PUTCase():
 
@@ -44,7 +112,7 @@ class PUTCase():
         self._orig_tpool_exc = tpool.execute
         tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
 
-        self.test_meta = self.gen_text(1024)
+        self.test_meta = gen_text(1024)
 
         # Disk file
         self.logger = LOG
@@ -55,20 +123,29 @@ class PUTCase():
         self.bytes_per_sync = 512 * 1024 * 1024
         self.threadpools = defaultdict(
             lambda: ThreadPool(nthreads=self.threads_per_disk))
+        self.token, self.url = get_auth_token(ACCOUNT, USER, PASSWORD)
+        self.container = gen_text(5)
+        resp = {}
+        client.put_container(self.url, self.token, self.container, response_dict = resp)
+        assert resp['status'] == 201
+        self.conn_pool = ConnectionPool(self.url, CONCURRENCY)
 
-    def gen_text(self, length=1024):
-        plain_text = "qwertyuiopasdfghjklzxcvbnm1234567890"
-        text_length = len(plain_text)
-        buf = StringIO()
+    @contextmanager
+    def connection(self):
+        try:
+            hc = self.conn_pool.get()
+            try:
+                yield hc
+            except CannotSendRequest:
+                try:
+                    hc.close()
+                except Exception:
+                    pass
+                self.failures += 1
+                hc = self.conn_pool.create()
+        finally:
+            self.conn_pool.put(hc)
 
-        while length > 0:
-            c = plain_text[random.randint(0, text_length - 1)]
-            buf.write(c)
-            length -= 1
-
-        buf.seek(0)
-
-        return buf.read()
 
     def _diskfile(self, device, partition, account, container, obj, **kwargs):
         """Utility method for instantiating a DiskFile."""
@@ -143,24 +220,49 @@ class PUTCase():
 
         return resp
 
-    def run(self, times, f, file_size=1024 * 64):
-        t = times
-        content = self.gen_text(file_size)
+    def PUT_through_proxy(self, obj_name, content):
+        resp = {}
+        with self.connection() as conn:
+            client.put_object(self.url, self.token, self.container,
+                              obj_name, content, len(content),
+                              http_conn=conn,
+                              response_dict = resp)
+        assert resp['status'] == 201
 
-        start_time = time()
-        while t > 0:
-            obj_name = self.gen_text(24)
-            f(obj_name, content)
-            t -= 1
+    def timing_stats(func):
+	def wrapped(*args, **kwargs):
+	    times = args[1] or kwargs.get('times', 0)
+	    file_size = args[3] if len(args) == 4 else kwargs.get('filesize', 0) or 1024*64
+            content = gen_text(file_size)
+	    kwargs.setdefault('content', content)
+	    start_time = time()
+	    func(*args, **kwargs)
+	    end_time = time()
+            cost = end_time - start_time
+            print 'Times : %s, Cost seconds : %s' % (times, end_time - start_time)
+            print 'file_size : %s, IO : %s' % (file_size, file_size * times / cost)
+	return wrapped
+	
+    @timing_stats
+    def run_http(self, times, f, file_size=1024 * 64, content=''):
+	eventlet.patcher.monkey_patch(socket=True)
 
-        end_time = time()
-        cost = end_time - start_time
+	pool = eventlet.GreenPool(CONCURRENCY)
+	for i in xrange(times):
+            obj_name = gen_text(24)
+            pool.spawn_n(f, obj_name, content)
+        pool.waitall()
 
-        print 'Times : %s, Cost seconds : %s' % (times, end_time - start_time)
-        print 'file_size : %s, IO : %s' % (file_size, file_size * times / cost)
+    @timing_stats
+    def run(self, times, f, file_size=1024 * 64, contents=''):
+        for i in xrange(times):
+            obj_name = gen_text(24)
+            f(obj_name, self.content)
 
 if __name__ == "__main__":
     put_case = PUTCase()
-    #put_case.run(128, put_case.write_swift_disk_file)
+    #put_case.run(1024, put_case.write_file)
+    #put_case.run(1024, put_case.write_swift_disk_file)
     #put_case.run(1024, put_case.PUT_file)
-    put_case.run(1, put_case.PUT_without_swob)
+    #put_case.run(1024, put_case.PUT_without_swob)
+    put_case.run_http(1024, put_case.PUT_through_proxy)
