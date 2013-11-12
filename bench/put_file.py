@@ -18,6 +18,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 
 from swift.common import utils
+from swift.common import direct_client
 from swift.common.swob import Request
 from swift.obj.diskfile import DiskFile
 from swift.obj import server as object_server
@@ -220,6 +221,14 @@ class PUTCase():
 
         return resp
 
+    def PUT_through_object(self, obj_name, content):
+        with self.connection() as conn:
+            node = {'ip': PROXY_IP, 'port': 6000, 'device': 'sdb1'}
+            partition = 'p'
+            direct_client.direct_put_object(node, partition,
+                                            'a', 'c', obj_name,
+                                            content, len(content))
+
     def PUT_through_proxy(self, obj_name, content):
         resp = {}
         with self.connection() as conn:
@@ -230,25 +239,25 @@ class PUTCase():
         assert resp['status'] == 201
 
     def timing_stats(func):
-	def wrapped(*args, **kwargs):
-	    times = args[1] or kwargs.get('times', 0)
-	    file_size = args[3] if len(args) == 4 else kwargs.get('filesize', 0) or 1024*64
+        def wrapped(*args, **kwargs):
+            times = args[1] or kwargs.get('times', 0)
+            file_size = args[3] if len(args) == 4 else kwargs.get('filesize', 0) or 1024*64
             content = gen_text(file_size)
-	    kwargs.setdefault('content', content)
-	    start_time = time()
-	    func(*args, **kwargs)
-	    end_time = time()
+            kwargs.setdefault('content', content)
+            start_time = time()
+            func(*args, **kwargs)
+            end_time = time()
             cost = end_time - start_time
             print 'Times : %s, Cost seconds : %s' % (times, end_time - start_time)
             print 'file_size : %s, IO : %s' % (file_size, file_size * times / cost)
-	return wrapped
-	
+        return wrapped
+
     @timing_stats
     def run_http(self, times, f, file_size=1024 * 64, content=''):
-	eventlet.patcher.monkey_patch(socket=True)
+        eventlet.patcher.monkey_patch(socket=True)
 
-	pool = eventlet.GreenPool(CONCURRENCY)
-	for i in xrange(times):
+        pool = eventlet.GreenPool(CONCURRENCY)
+        for i in xrange(times):
             obj_name = gen_text(24)
             pool.spawn_n(f, obj_name, content)
         pool.waitall()
@@ -265,4 +274,5 @@ if __name__ == "__main__":
     #put_case.run(1024, put_case.write_swift_disk_file)
     #put_case.run(1024, put_case.PUT_file)
     #put_case.run(1024, put_case.PUT_without_swob)
-    put_case.run_http(1024, put_case.PUT_through_proxy)
+    # put_case.run_http(1024, put_case.PUT_through_proxy)
+    put_case.run_http(1024, put_case.PUT_through_object)
