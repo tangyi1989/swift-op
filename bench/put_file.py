@@ -263,10 +263,10 @@ class PUTCase():
         pool.waitall()
 
     @timing_stats
-    def run(self, times, f, file_size=1024 * 64, contents=''):
+    def run(self, times, f, file_size=1024 * 64, content=''):
         for i in xrange(times):
             obj_name = gen_text(24)
-            f(obj_name, self.content)
+            f(obj_name, content)
 
 if __name__ == "__main__":
     put_case = PUTCase()
