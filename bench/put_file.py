@@ -8,6 +8,7 @@ import random
 import logging
 import urllib2
 import re
+import multiprocessing
 import eventlet
 import eventlet.pools
 
@@ -268,6 +269,36 @@ class PUTCase():
             obj_name = gen_text(24)
             f(obj_name, content)
 
+    @timing_stats
+    def run_multiprocessing(self, times, f, file_size=1024*64, content='', concurrency=1):
+        task = multiprocessing.JoinableQueue()
+        def worker():
+            for item in iter(task.get, None):
+                f(item[0], item[1])
+                task.task_done()
+            task.task_done()
+
+        procs = []
+        for i in xrange(concurrency):
+            p = multiprocessing.Process(target=worker)
+            procs.append(p)
+            p.start()
+
+        for i in xrange(times):
+            obj_name = gen_text(24)
+            task.put((obj_name, content))
+
+        task.join()
+
+        for i in xrange(concurrency):
+            task.put(None)
+
+        task.join()
+
+        for p in procs:
+            p.join()
+
+
 if __name__ == "__main__":
     put_case = PUTCase()
     #put_case.run(1024, put_case.write_file)
@@ -275,4 +306,5 @@ if __name__ == "__main__":
     #put_case.run(1024, put_case.PUT_file)
     #put_case.run(1024, put_case.PUT_without_swob)
     # put_case.run_http(1024, put_case.PUT_through_proxy)
-    put_case.run_http(1024, put_case.PUT_through_object)
+    # put_case.run_http(1024, put_case.PUT_through_object)
+    put_case.run_multiprocessing(1024, put_case.write_swift_disk_file, concurrency=10)
