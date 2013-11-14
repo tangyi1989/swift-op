@@ -11,30 +11,23 @@ from swift.common.swob import Request
 from swift.common.memcached import MemcacheRing
 import swiftclient as client
 
-from utils import get_auth_token, gen_text, Manager
+from utils import get_auth_token, gen_text, Manager, \
+    ACCOUNT, PROXY_IP
 
-# 请修改此变量
-PROXY_IP = '192.168.0.64'
-ACCOUNT = 'test'
-USER = 'testadmin'
-PASSWORD = 'testing'
-
-
-AUTH_URL = "http://%s:8080/auth/v1.0" % PROXY_IP
-ACCOUNT_NAME = 'AUTH_%s' % ACCOUNT   # prefix AUTH_ plus account name
 
 class TestPUT(Manager):
     def __init__(self):
         self.app = ProxyApplication(None)
         self.memcache = self._memcache()
-        self.token, self.url = get_auth_token(ACCOUNT, USER, PASSWORD, AUTH_URL, PROXY_IP)
+        self.account_name = 'AUTH_%s' % ACCOUNT   # prefix AUTH_ plus account name
+        self.token, self.url = get_auth_token()
         self.container = gen_text(5)
         resp = {}
         client.put_container(self.url, self.token, self.container, response_dict = resp)
         assert resp['status'] == 201
 
     def _memcache(self):
-        memcache_servers = '127.0.0.1:11211'
+        memcache_servers = '%s:11211' % PROXY_IP
         serialization_format = 2
         max_conns = 50
         return MemcacheRing(
@@ -44,8 +37,8 @@ class TestPUT(Manager):
             max_conns=max_conns)
 
     def PUT_in_obj_controller(self, obj_name, content):
-        object_controller = ObjectController(self.app, ACCOUNT_NAME, self.container, obj_name)
-        path = '/%s/%s/%s' % (ACCOUNT_NAME, self.container, obj_name)
+        object_controller = ObjectController(self.app, self.account_name, self.container, obj_name)
+        path = '/%s/%s/%s' % (self.account_name, self.container, obj_name)
         timestamp = normalize_timestamp(time())
         req = Request.blank(
             path, environ={'REQUEST_METHOD': 'PUT'},
@@ -63,6 +56,11 @@ class TestPUT(Manager):
 
 if __name__ == '__main__':
     putcase = TestPUT()
-    putcase.run(1024, putcase.PUT_in_obj_controller)
+
+    # TODO: when runing both, may give out error message
+    # like 'ERROR:root:Timeout talking to memcached' and
+    # speed of the second slows down to half of the speed
+    # of running standalone.
+
+    # putcase.run(1024, putcase.PUT_in_obj_controller)
     putcase.run_multiprocessing(1024, putcase.PUT_in_obj_controller, concurrency=16)
-    # putcase.PUT_in_obj_controller('hello', 'world')

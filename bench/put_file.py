@@ -10,6 +10,7 @@ import eventlet
 
 from time import time
 from eventlet import tpool
+from eventlet.green.httplib import CannotSendRequest
 
 from collections import defaultdict
 from contextlib import contextmanager
@@ -25,20 +26,10 @@ from swift.common.utils import mkdirs, renamer, ThreadPool, \
 import swiftclient as client
 
 from utils import gen_text, get_auth_token, \
-    ConnectionPool, Manager
+    ConnectionPool, Manager, CONCURRENCY, PROXY_IP, \
+    DATADIR, DEVICE_PATH
 
 LOG = logging.getLogger(__name__)
-DATADIR = 'objects'
-
-# 请修改此变量
-DEVICE_PATH = '/srv/node/'
-PROXY_IP = '192.168.0.64'
-ACCOUNT = 'test'
-USER = 'testadmin'
-PASSWORD = 'testing'
-CONCURRENCY = 100
-
-AUTH_URL = "http://%s:8080/auth/v1.0" % PROXY_IP
 
 class PUTCase(Manager):
 
@@ -69,7 +60,7 @@ class PUTCase(Manager):
         self.bytes_per_sync = 512 * 1024 * 1024
         self.threadpools = defaultdict(
             lambda: ThreadPool(nthreads=self.threads_per_disk))
-        self.token, self.url = get_auth_token(ACCOUNT, USER, PASSWORD, AUTH_URL, PROXY_IP)
+        self.token, self.url = get_auth_token()
         self.container = gen_text(5)
         resp = {}
         client.put_container(self.url, self.token, self.container, response_dict = resp)
