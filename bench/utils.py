@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 #*_* coding=utf8 *_*
 
-import re
 import random
-import urllib2
 import eventlet
 import eventlet.pools
 from time import time
@@ -11,6 +9,13 @@ from cStringIO import StringIO
 
 import swiftclient as client
 
+# 请修改此变量
+DATADIR = 'objects'
+DEVICE_PATH = '/srv/node/'
+PROXY_IP = '127.0.0.1'
+ACCOUNT = 'test'
+USER = 'testadmin'
+KEY = 'testing'
 
 def gen_text(length=1024):
 
@@ -29,28 +34,18 @@ def gen_text(length=1024):
 
     return buf.read()
 
-
-def get_auth_token(account, user, password, auth_url, proxy_ip):
+def get_auth_token():
     """
     Get Authenticate token and Storage URL
 
     Returns:
     (token, storage_url)
     """
-    # initialize request
-    request = urllib2.Request(auth_url)
-    request.add_header('X-Auth-User', ':'.join((account, user)))
-    request.add_header('X-Auth-Key', password)
-    try:
-        # get token and storage url
-        response = urllib2.urlopen(request)
-        auth_token = response.info().getheader('X-Auth-Token')
-        local_storage_url = response.info().getheader('X-Storage-Url')
-        storage_url = re.sub('127.0.0.1', proxy_ip, local_storage_url)
-        return (auth_token, storage_url)
-    # authentication failed
-    except Exception as e:
-        raise e
+    auth_url = "http://%s:8080/auth/v1.0" % PROXY_IP
+    url, token = client.get_auth(auth_url,
+                                 ':'.join((ACCOUNT, USER)),
+                                 KEY)
+    return (token, url)
 
 def timing_stats(func):
 

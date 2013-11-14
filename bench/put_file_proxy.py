@@ -18,15 +18,8 @@ from swift.common.swob import Request
 from swift.common.memcached import MemcacheRing
 import swiftclient as client
 
-from utils import get_auth_token, gen_text
+from utils import get_auth_token, gen_text, ACCOUNT, PROXY_IP
 from bench import SwiftBenchPUT
-
-# 请修改此变量
-PROXY_IP = '127.0.0.1'
-ACCOUNT = 'test'
-USER = 'testadmin'
-PASSWORD = 'testing'
-
 
 AUTH_URL = "http://%s:8080/auth/v1.0" % PROXY_IP
 ACCOUNT_NAME = 'AUTH_%s' % ACCOUNT   # prefix AUTH_ plus account name
@@ -36,8 +29,8 @@ class TestPUT():
     def __init__(self):
         self.app = ProxyApplication(None)
         self.memcache = self._memcache()
-        self.token, self.url = get_auth_token(
-            ACCOUNT, USER, PASSWORD, AUTH_URL, PROXY_IP)
+        self.account_name = 'AUTH_%s' % ACCOUNT   # prefix AUTH_ plus account name
+        self.token, self.url = get_auth_token()
         self.container = gen_text(5)
         resp = {}
         client.put_container(
@@ -45,7 +38,7 @@ class TestPUT():
         assert resp['status'] == 201
 
     def _memcache(self):
-        memcache_servers = '127.0.0.1:11211'
+        memcache_servers = '%s:11211' % PROXY_IP
         serialization_format = 2
         max_conns = 50
         return MemcacheRing(
@@ -79,4 +72,4 @@ if __name__ == '__main__':
     bencher = SwiftBenchPUT(16, file_size=1024 * 128,
                             worker_num=4, coro_concurrency=26)
     bencher.run(putcase.PUT_in_obj_controller)
-    #putcase.PUT_in_obj_controller('hello', 'world')
+
