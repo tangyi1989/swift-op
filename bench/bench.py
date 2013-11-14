@@ -28,20 +28,13 @@ class BenchManager(object):
         for i in xrange(times):
             f(*args, **kwargs)
 
-    def run_multiprocessing(self, times, f, *args, **kwargs):
+    def __run_multiproc(self, times, worker, process_func, *args, **kwargs):
         task = multiprocessing.JoinableQueue()
-
-        def worker(f):
-            for item in iter(task.get, None):
-                args, kwargs = item
-                f(*args, **kwargs)
-                task.task_done()
-            task.task_done()
 
         procs = []
         for i in xrange(self.worker_num):
             p = multiprocessing.Process(
-                target=functools.partial(worker, f))
+                target=functools.partial(worker, task, process_func))
             procs.append(p)
             p.start()
 
@@ -57,6 +50,31 @@ class BenchManager(object):
 
         for p in procs:
             p.join()
+
+    def run_multiproc_coro(self, times, f, *args, **kwargs):
+        def worker(task, process_func):
+            pool = eventlet.GreenPool(self.coro_concurrency)
+
+            for item in iter(task.get, None):
+                args, kwargs = item
+                pool.spawn_n(process_func, *args, **kwargs)
+                task.task_done()
+
+            pool.waitall()
+            task.task_done()
+
+        self.__run_multiproc(times, worker, f, *args, **kwargs)
+
+    def run_multiproc_seq(self, times, f, *args, **kwargs):
+
+        def worker(task, process_func):
+            for item in iter(task.get, None):
+                args, kwargs = item
+                process_func(*args, **kwargs)
+                task.task_done()
+            task.task_done()
+
+        self.__run_multiproc(times, worker, f, *args, **kwargs)
 
 
 class SwiftBenchPUT(BenchManager):
@@ -82,7 +100,8 @@ class SwiftBenchPUT(BenchManager):
         print "Per Call %s, IO : %s" % \
             (cost_seconds / self.times, self.times *
              self.file_size / cost_seconds)
-        print
+        print '*********************************************'
+        print 
 
     def run(self, put_func):
 
@@ -97,6 +116,8 @@ class SwiftBenchPUT(BenchManager):
         print "Worker number : %s, Coro concurrency : %s" % \
             (self.worker_num, self.coro_concurrency)
         print '-----------------------------------------------'
+        print '-----------------------------------------------'
         self.with_stats(self.run_seq, f, "Sequence call")
         self.with_stats(self.run_coro, f, "Use coroutine")
-        self.with_stats(self.run_multiprocessing, f, "Use multiprocessing")
+        self.with_stats(self.run_multiproc_seq, f, "Use multiproc seq")
+        self.with_stats(self.run_multiproc_coro, f, "Use multiproc coro")
