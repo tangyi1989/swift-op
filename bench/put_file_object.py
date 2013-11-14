@@ -5,8 +5,6 @@
 
 import os
 import logging
-import multiprocessing
-import eventlet
 
 from time import time
 from eventlet import tpool
@@ -25,7 +23,7 @@ from swift.common.utils import mkdirs, renamer, ThreadPool, \
 import swiftclient as client
 
 from utils import gen_text, get_auth_token, \
-    ConnectionPool, Manager
+    ConnectionPool
 
 LOG = logging.getLogger(__name__)
 DATADIR = 'objects'
@@ -40,7 +38,8 @@ CONCURRENCY = 100
 
 AUTH_URL = "http://%s:8080/auth/v1.0" % PROXY_IP
 
-class PUTCase(Manager):
+
+class PUTObject():
 
     def __init__(self):
         """Set up for testing swift.object.server.ObjectController"""
@@ -69,10 +68,12 @@ class PUTCase(Manager):
         self.bytes_per_sync = 512 * 1024 * 1024
         self.threadpools = defaultdict(
             lambda: ThreadPool(nthreads=self.threads_per_disk))
-        self.token, self.url = get_auth_token(ACCOUNT, USER, PASSWORD, AUTH_URL, PROXY_IP)
+        self.token, self.url = get_auth_token(
+            ACCOUNT, USER, PASSWORD, AUTH_URL, PROXY_IP)
         self.container = gen_text(5)
         resp = {}
-        client.put_container(self.url, self.token, self.container, response_dict = resp)
+        client.put_container(
+            self.url, self.token, self.container, response_dict=resp)
         assert resp['status'] == 201
         self.conn_pool = ConnectionPool(self.url, CONCURRENCY)
 
@@ -91,7 +92,6 @@ class PUTCase(Manager):
                 hc = self.conn_pool.create()
         finally:
             self.conn_pool.put(hc)
-
 
     def _diskfile(self, device, partition, account, container, obj, **kwargs):
         """Utility method for instantiating a DiskFile."""
@@ -180,18 +180,8 @@ class PUTCase(Manager):
             client.put_object(self.url, self.token, self.container,
                               obj_name, content, len(content),
                               http_conn=conn,
-                              response_dict = resp)
+                              response_dict=resp)
         assert resp['status'] == 201
 
-
-
 if __name__ == "__main__":
-    put_case = PUTCase()
-    #put_case.run(1024, put_case.write_file)
-    # put_case.run(1024, put_case.write_swift_disk_file)
-    # put_case.run(1024, put_case.PUT_file)
-    # put_case.run(1024, put_case.PUT_without_swob)
-    # put_case.run_http(1024, put_case.PUT_through_proxy)
-    # put_case.run_http(1024, put_case.PUT_through_object)
-    # put_case.run_multiprocessing(1024, put_case.write_swift_disk_file, concurrency=16)
-    put_case.run_multiprocessing(1024, put_case.PUT_through_proxy, concurrency=16)
+    pass
