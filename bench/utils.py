@@ -12,6 +12,15 @@ from time import time
 
 import swiftclient as client
 
+# 请修改此变量
+DATADIR = 'objects'
+DEVICE_PATH = '/srv/node/'
+PROXY_IP = '192.168.0.64'
+ACCOUNT = 'test'
+USER = 'testadmin'
+KEY = 'testing'
+CONCURRENCY = 100
+
 def gen_text(length=1024):
     plain_text = "qwertyuiopasdfghjklzxcvbnm1234567890"
     text_length = len(plain_text)
@@ -26,34 +35,18 @@ def gen_text(length=1024):
 
     return buf.read()
 
-def get_auth_token(account, user, password, auth_url, proxy_ip):
+def get_auth_token():
     """
     Get Authenticate token and Storage URL
 
     Returns:
     (token, storage_url)
     """
-    # initialize request
-    request = urllib2.Request(auth_url)
-    request.add_header('X-Auth-User', ':'.join((account, user)))
-    request.add_header('X-Auth-Key', password)
-    try:
-        # get token and storage url
-        response = urllib2.urlopen(request)
-        auth_token = response.info().getheader('X-Auth-Token')
-        local_storage_url = response.info().getheader('X-Storage-Url')
-        storage_url = re.sub('127.0.0.1', proxy_ip, local_storage_url)
-        return (auth_token, storage_url)
-    # authentication failed
-    except urllib2.HTTPError, e:
-        err_code = e.getcode()
-        if err_code == 401:
-            print e
-    finally:
-        try:
-            response.close()
-        except NameError:
-            pass
+    auth_url = "http://%s:8080/auth/v1.0" % PROXY_IP
+    url, token = client.get_auth(auth_url,
+                                 ':'.join((ACCOUNT, USER)),
+                                 KEY)
+    return (token, url)
 
 class ConnectionPool(eventlet.pools.Pool):
 
