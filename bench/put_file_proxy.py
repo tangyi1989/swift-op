@@ -71,5 +71,6 @@ if __name__ == '__main__':
     putcase = TestPUT()
     bencher = SwiftBenchPUT(16, file_size=1024 * 128,
                             worker_num=4, coro_concurrency=26)
-    bencher.run(putcase.PUT_in_obj_controller)
+    #bencher.run(putcase.PUT_in_obj_controller)
+    putcase.PUT_in_obj_controller(gen_text(5), 'world')
 

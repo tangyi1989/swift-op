@@ -25,6 +25,7 @@ import swiftclient as client
 
 from utils import gen_text, get_auth_token, ConnectionPool, \
     CONCURRENCY, PROXY_IP, DATADIR, DEVICE_PATH
+from bench import SwiftBenchPUT
 
 LOG = logging.getLogger(__name__)
 
@@ -156,21 +157,15 @@ class PUTObject():
         return resp
 
     def PUT_through_object(self, obj_name, content):
-        with self.connection() as conn:
-            node = {'ip': PROXY_IP, 'port': 6000, 'device': 'sdb1'}
-            partition = 'p'
-            direct_client.direct_put_object(node, partition,
-                                            'a', 'c', obj_name,
-                                            content, len(content))
+        node = {'ip': PROXY_IP, 'port': 6000, 'device': 'sdb1'}
+        partition = 'p'
+        direct_client.direct_put_object(node, partition,
+                                        'a', 'c', obj_name,
+                                        content, len(content))
 
-    def PUT_through_proxy(self, obj_name, content):
-        resp = {}
-        with self.connection() as conn:
-            client.put_object(self.url, self.token, self.container,
-                              obj_name, content, len(content),
-                              http_conn=conn,
-                              response_dict=resp)
-        assert resp['status'] == 201
 
 if __name__ == "__main__":
-    pass
+    put_object = PUTObject()
+    bencher = SwiftBenchPUT(4096, file_size=1024 * 128,
+                            worker_num=4, coro_concurrency=26)
+    bencher.run(put_object.PUT_file)
